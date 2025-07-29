@@ -5,7 +5,7 @@ from matplotlib_inline import backend_inline # type: ignore
 
 from torch import nn as nn
 
-from utils.hparams import HyperParameters
+from .hparams import HyperParameters
 
 class ProgressBoard(HyperParameters):
     """The board that plots data points in animation."""
@@ -15,7 +15,7 @@ class ProgressBoard(HyperParameters):
                  fig=None, axes=None, figsize=(3.5, 2.5), display=True):
         self.save_hyperparameters()
 
-    def draw(self, x, y, label, every_n=1):
+    def draw(self, x, y, label, every_n=1, id=None):
         Point = collections.namedtuple('Point', ['x', 'y'])
         if not hasattr(self, 'raw_points'):
             self.raw_points = collections.OrderedDict()
@@ -46,6 +46,7 @@ class ProgressBoard(HyperParameters):
         if self.xlim: axes.set_xlim(self.xlim)
         if self.ylim: axes.set_ylim(self.ylim)
         if not self.xlabel: self.xlabel = self.x
+        if id: self.fig.suptitle(id)
         axes.set_xlabel(self.xlabel)
         axes.set_ylabel(self.ylabel)
         axes.set_xscale(self.xscale)
@@ -60,10 +61,10 @@ class PlotModule(nn.Module):
         self.plot_train_per_epoch = plot_train_per_epoch
         self.plot_valid_per_epoch = plot_valid_per_epoch
         fig, axs = plt.subplots(1, 2, figsize=(7, 3))
-        self.loss_board = ProgressBoard(fig=fig, axes=axs[0])
+        self.loss_board = ProgressBoard(fig=fig, axes=axs[0], ylim=[0,None])
         self.accuracy_board = ProgressBoard(fig=fig, axes=axs[1], ylim=[0,1])
 
-    def plot(self, key, value, epoch, i, dl_len, train):
+    def plot(self, key, value, epoch, i, dl_len, train, id):
         """Plot a point in animation."""
         if train:
             x = epoch + i / dl_len
@@ -79,4 +80,4 @@ class PlotModule(nn.Module):
             raise ValueError("Unknown key")
         board.xlabel = 'epoch'
         board.draw(x, value, ('train_' if train else 'val_') + key, 
-                   every_n=int(n))
+                   every_n=int(n), id=id)

@@ -19,6 +19,7 @@ class TrainingHyperParameters(HyperParameters):
             self,
             dataset: str,
             model_type: str,
+            id: str,
             *,
             activation: str = 'relu',
             batch_norm: bool = False,
@@ -47,25 +48,23 @@ def get_dataset_shape(dataset: str):
     return input_size, input_channels, num_classes
 
 class LogisticRegressionHyperParameters(TrainingHyperParameters):
-    def __init__(self, *, dataset='MNIST', **kwargs):
-        input_size, _, num_classes = get_dataset_shape(dataset)
-        self.input_size = input_size
-        self.num_classes = num_classes
+    def __init__(self, *, dataset='MNIST', id=None, **kwargs):
+        self.input_size, _, self.num_classes = get_dataset_shape(dataset)
         super().__init__(
             dataset = dataset,
             model_type = 'LogisticRegression',
+            id = id,
             **kwargs
         )
 
 class MLPHyperParameters(TrainingHyperParameters):
-    def __init__(self, *, dataset='MNIST', hidden_width=64, num_layers=3, **kwargs):
-        input_size, _, num_classes = get_dataset_shape(dataset)  
-        self.input_size = input_size
+    def __init__(self, *, dataset='MNIST', id=None, hidden_width=64, num_layers=3, **kwargs):
+        self.input_size, _, self.num_classes = get_dataset_shape(dataset)  
         self.hidden_widths = [hidden_width] * num_layers
-        self.num_classes = num_classes
         super().__init__(
-            dataset = dataset, 
-            model_type = 'MLP', 
+            dataset = dataset,
+            model_type = 'MLP',
+            id = id,
             **kwargs
         )
 
@@ -79,17 +78,16 @@ def get_image_width(dataset):
             raise ValueError("Unsupported dataset")
 
 class CNNHyperParameters(TrainingHyperParameters):
-    def __init__(self, *, dataset='MNIST', channel_width=8, num_convs=2, hidden_width=128, **kwargs):
-        _, input_channels, num_classes = get_dataset_shape(dataset)      
+    def __init__(self, *, dataset='MNIST', id=None, channel_width=8, num_convs=2, hidden_width=128, **kwargs):
+        _, self.input_channels, self.num_classes = get_dataset_shape(dataset)      
         self.image_width = get_image_width(dataset)
-        self.input_channels = input_channels
         self.hidden_width = hidden_width
-        self.num_classes = num_classes
         self.channel_widths = [channel_width * (2**i) for i in range(num_convs)]
         self.pool_size = 2
         self.batch_norm = False
         super().__init__(
             dataset = dataset,
             model_type = 'CNN',
+            id = id,
             **kwargs
         )

@@ -1,3 +1,5 @@
+import os
+
 import torch
 from torch.utils.data import Subset, TensorDataset
 from torchvision import transforms, datasets # type: ignore
@@ -18,19 +20,35 @@ class WrappedDataLoader:
     def dataset(self):
         return self.dl.dataset
 
+def get_root():
+    current_file_path = os.path.abspath(__file__)
+    current_dir = os.path.dirname(current_file_path)
+
+    # Traverse up the directory tree to find 'ml-experiments'
+    project_root = current_dir
+    while os.path.basename(project_root) != 'ml-experiments' and project_root != os.path.dirname(project_root):
+        project_root = os.path.dirname(project_root)
+    
+    # Check if we found the project root
+    if os.path.basename(project_root) != 'ml-experiments':
+        raise RuntimeError("Could not find 'ml-experiments' in the parent directories.")
+
+    return project_root
+
 def get_tensordataset(name):
+    datadir = get_root() + "/computer_vision/datasets"
     match name:
         case "MNIST":
-            train_ds = datasets.MNIST(root='datasets', train=True, download=True)
-            val_ds = datasets.MNIST(root='datasets', train=False, download=True)
+            train_ds = datasets.MNIST(root=datadir, train=True, download=True)
+            val_ds = datasets.MNIST(root=datadir, train=False, download=True)
         case "FashionMNIST":
-            train_ds = datasets.FashionMNIST(root='datasets', train=True, download=True)
-            val_ds = datasets.FashionMNIST(root='datasets', train=False, download=True)
+            train_ds = datasets.FashionMNIST(root=datadir, train=True, download=True)
+            val_ds = datasets.FashionMNIST(root=datadir, train=False, download=True)
         case "CIFAR10":
-            train_ds = datasets.CIFAR10(root='datasets', train=True, download=True)
+            train_ds = datasets.CIFAR10(root=datadir, train=True, download=True)
             train_features = torch.tensor(train_ds.data).permute(0, 3, 1, 2) / 255
             train_targets = torch.tensor(train_ds.targets)
-            val_ds = datasets.CIFAR10(root='datasets', train=False, download=True)
+            val_ds = datasets.CIFAR10(root=datadir, train=False, download=True)
             val_features = torch.tensor(val_ds.data).permute(0, 3, 1, 2) / 255
             val_targets = torch.tensor(val_ds.targets)
             return TensorDataset(train_features, train_targets), TensorDataset(val_features, val_targets)

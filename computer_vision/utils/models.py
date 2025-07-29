@@ -4,7 +4,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from utils.plot import PlotModule
+from .plot import PlotModule
 
 Tensor = torch.Tensor
 
@@ -58,10 +58,10 @@ class MLP(PlotModule):
     def __init__(self, hp):
         super().__init__()
         assert len(hp.hidden_widths) > 0, "At least one hidden layer must be specified."
-        self.fc_in = nn.Linear(hp.input_size, hp.hidden_widths[0])
-        self.fc_hiddens = nn.ModuleList()
+        self.fc_layers = nn.ModuleList()
+        self.fc_layers.append(nn.Linear(hp.input_size, hp.hidden_widths[0]))
         for i in range(len(hp.hidden_widths) - 1):
-            self.fc_hiddens.append(nn.Linear(hp.hidden_widths[i], hp.hidden_widths[i + 1]))
+            self.fc_layers.append(nn.Linear(hp.hidden_widths[i], hp.hidden_widths[i + 1]))
         self.fc_out = nn.Linear(hp.hidden_widths[-1], hp.num_classes)
         self.activation = get_activation(hp.activation)
         self.apply(scale_init(hp))
@@ -76,20 +76,24 @@ class MLP(PlotModule):
             Tensor: Output tensor of shape (batch_size, num_classes).
         """
         x = torch.flatten(x, start_dim=1)
-        x = self.activation(self.fc_in(x))
-        for hidden in self.fc_hiddens:
-            x = self.activation(hidden(x))
+        for layer in self.fc_layers:
+            x = self.activation(layer(x))
         return self.fc_out(x)
     
 class CNN(PlotModule):
     def __init__(self, hp):
         super().__init__()
         assert len(hp.channel_widths) > 0, "At least one convolutional layer must be specified."
-        self.conv_in = nn.Conv2d(hp.input_channels, hp.channel_widths[0], kernel_size=3, padding=1)
         self.convs = nn.ModuleList()
+        self.convs.append(nn.Conv2d(hp.input_channels, hp.channel_widths[0], 
+                                    kernel_size=3, padding=1))
         for i in range(len(hp.channel_widths) - 1):
-            self.convs.append(nn.Conv2d(hp.channel_widths[i], hp.channel_widths[i + 1], kernel_size=3, padding=1))
-        self.fc_hidden = nn.Linear(hp.channel_widths[-1] * (hp.image_width // (2 ** (len(hp.channel_widths) - 1))) ** 2, hp.hidden_width)
+            self.convs.append(nn.Conv2d(hp.channel_widths[i], 
+                                        hp.channel_widths[i + 1], 
+                                        kernel_size=3, padding=1))
+        self.fc_hidden = nn.Linear(hp.channel_widths[-1] * (hp.image_width // 
+                                    (2 ** (len(hp.channel_widths) - 1))) ** 2, 
+                                    hp.hidden_width)
         self.fc_out = nn.Linear(hp.hidden_width, hp.num_classes)
         self.pool = nn.MaxPool2d(kernel_size=hp.pool_size)
         self.activation = get_activation(hp.activation)
@@ -97,10 +101,9 @@ class CNN(PlotModule):
         self.apply(scale_init(hp))
         
         if self.batch_norm:
-            self.bn_in = nn.BatchNorm2d(hp.channel_widths[0])
             self.batch_norms = nn.ModuleList()
-            for i in range(len(hp.channel_widths) - 1):
-                self.batch_norms.append(nn.BatchNorm2d(hp.channel_widths[i+1]))
+            for i in range(len(hp.channel_widths)):
+                self.batch_norms.append(nn.BatchNorm2d(hp.channel_widths[i]))
             self.bn_hidden = nn.BatchNorm1d(hp.hidden_width)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -113,21 +116,20 @@ class CNN(PlotModule):
             Tensor: Output tensor of shape (batch_size, num_classes).
         """
         if self.batch_norm:
-            x = self.activation(self.bn_in(self.conv_in(x)))
-            for bn, conv in zip(self.batch_norms, self.convs):
+            for i, (bn, conv) in enumerate(zip(self.batch_norms, self.convs)):
                 x = self.activation(bn(conv(x)))
-                x = self.pool(x)
+                if i > 0:
+                    x = self.pool(x)
             x = x.view(x.size(0), -1)
             x = self.activation(self.bn_hidden(self.fc_hidden(x)))
         else:
-            x = self.activation(self.conv_in(x))
-            for conv in self.convs:
+            for i, conv in enumerate(self.convs):
                 x = self.activation(conv(x))
-                x = self.pool(x)
+                if i > 0:
+                    x = self.pool(x)
             x = x.view(x.size(0), -1)
             x = self.activation(self.fc_hidden(x))
         return self.fc_out(x)
-    
 
 def load_model(hp):
     if hp.model_type == 'LogisticRegression':
