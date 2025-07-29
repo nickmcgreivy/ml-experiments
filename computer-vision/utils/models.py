@@ -4,6 +4,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+from utils.plot import PlotModule
+
 Tensor = torch.Tensor
 
 def linear_init(m, hp):
@@ -34,7 +36,7 @@ def get_activation(activation: str):
     else:
         raise ValueError(f"Unsupported activation function: {activation}")
 
-class LogisticRegression(nn.Module):
+class LogisticRegression(PlotModule):
     def __init__(self, hp):
         super().__init__()
         self.linear = nn.Linear(hp.input_size, hp.num_classes)
@@ -52,7 +54,7 @@ class LogisticRegression(nn.Module):
         x = torch.flatten(x, start_dim=1)
         return self.linear(x)
 
-class MLP(nn.Module):
+class MLP(PlotModule):
     def __init__(self, hp):
         super().__init__()
         assert len(hp.hidden_widths) > 0, "At least one hidden layer must be specified."
@@ -79,7 +81,7 @@ class MLP(nn.Module):
             x = self.activation(hidden(x))
         return self.fc_out(x)
     
-class CNN(nn.Module):
+class CNN(PlotModule):
     def __init__(self, hp):
         super().__init__()
         assert len(hp.channel_widths) > 0, "At least one convolutional layer must be specified."

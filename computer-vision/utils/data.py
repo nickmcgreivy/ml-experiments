@@ -2,7 +2,6 @@ import torch
 from torch.utils.data import Subset, TensorDataset
 from torchvision import transforms, datasets # type: ignore
 
-
 class WrappedDataLoader:
     def __init__(self, dl, func):
         self.dl = dl
