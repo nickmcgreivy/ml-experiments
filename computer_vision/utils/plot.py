@@ -55,7 +55,7 @@ class ProgressBoard(HyperParameters):
         display.display(self.fig)
         display.clear_output(wait=True)
 
-class PlotModule(nn.Module):
+class Plot:
     def __init__(self, plot_train_per_epoch=4, plot_valid_per_epoch=1):
         super().__init__()
         self.plot_train_per_epoch = plot_train_per_epoch
