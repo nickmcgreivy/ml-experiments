@@ -1,4 +1,6 @@
 from typing import List, Callable, Tuple
+from abc import ABC, abstractmethod
+
 
 import torch
 from torch import nn
@@ -138,7 +140,7 @@ class CNN(Module):
             x = x.view(x.size(0), -1)
             x = self.activation(self.fc_hidden(x))
         return self.fc_out(x)
-
+    
 def load_model(hp):
     if hp.model_type == 'LogisticRegression':
         model = LogisticRegression(hp)
@@ -149,3 +151,217 @@ def load_model(hp):
     else:
         raise ValueError(f"Unsupported model type: {hp.model_type}")
     return model
+
+class RecurrentLM(Module, ABC):
+    def __init__(self, vocab_size, rnn, out):
+        super().__init__()
+        self.vocab_size = vocab_size
+        self.rnn = rnn
+        self.out = out
+    
+    def forward(self, x, state=None):
+        """Performs a forward pass
+
+        Converts the input into a one-hot encoding
+
+        Inputs:
+        x (torch.tensor) inputs of shape (batch_size, num_steps)
+
+        Outputs:
+        (torch.tensor) logits of shape (batch_size, num_steps, vocab_size)
+        """
+        x = self.one_hot(x)
+        outputs, _ = self.rnn(x, hx=state)
+        return self.out(outputs)
+    
+    def one_hot(self, X):
+        return F.one_hot(X, num_classes=self.vocab_size).type(torch.float32)
+
+    def predict(self, prefix, num_preds, vocab):
+        state, outputs = None, list(prefix)
+
+        # run model on prefix, get state of model
+        X = torch.tensor([vocab[list(prefix)]])
+        embs = self.one_hot(X)
+        _, state = self.rnn(embs, state)
+
+        # run model forwards one step at a time
+        x = torch.tensor([[vocab[prefix[-1]]]])
+        emb = self.one_hot(x)
+        for i in range(num_preds):
+            output, state = self.rnn(emb, state)
+            logits = self.out(output)
+            pred = torch.argmax(logits)
+            outputs.append(vocab.to_tokens(pred.item()))
+            emb = self.one_hot(torch.tensor([[pred]]))
+
+        return ''.join(outputs)
+
+class RNNLM(RecurrentLM):
+    """RNN-based language model"""
+    def __init__(self, vocab_size, hidden_dim):
+        rnn = nn.RNN(vocab_size, hidden_dim, batch_first=True)
+        linear_out = nn.Linear(hidden_dim, vocab_size)
+        super().__init__(vocab_size, rnn, linear_out)
+
+class LSTMLM(RecurrentLM):
+    def __init__(self, vocab_size, num_hidden, num_layers=1, 
+                 proj_size=0, bidirectional=False):
+        rnn = nn.LSTM(vocab_size, num_hidden, batch_first=True,
+                            num_layers=num_layers, proj_size=proj_size,
+                            bidirectional=bidirectional, )
+        hidden_size = (proj_size if proj_size > 0 else num_hidden)
+        hidden_size = hidden_size * 2 if bidirectional else hidden_size
+        linear_out = nn.Linear(hidden_size, vocab_size)        
+        super().__init__(vocab_size, rnn, linear_out)
+
+class Encoder(Module, ABC):
+    def __init__(self):
+        super().__init__()
+    
+    @abstractmethod
+    def forward(self, x, *args):
+        pass
+
+class Decoder(Module, ABC):
+    def __init__(self):
+        super().__init__()
+
+    @abstractmethod
+    def init_state(self, enc_all_outputs, *args):
+        pass
+    
+    @abstractmethod
+    def forward(self, x, state):
+        pass
+
+def init_seq2seq(module):
+    """Initialize weights for sequence-to-sequence learning."""
+    if type(module) == nn.Linear:
+         nn.init.xavier_uniform_(module.weight)
+    if type(module) == nn.GRU:
+        for param in module._flat_weights_names:
+            if "weight" in param:
+                nn.init.xavier_uniform_(module._parameters[param])
+
+class Seq2SeqEncoder(Encoder):
+    def __init__(self, vocab_size, embed_size, hidden_size, num_layers, dropout=0.0):
+        super().__init__()
+        self.embed = nn.Embedding(vocab_size, embed_size)
+        self.rnn = nn.GRU(embed_size, hidden_size, num_layers,
+                          batch_first=True, dropout=dropout)
+        self.apply(init_seq2seq)
+    
+    def forward(self, x, *args):
+        """Forward pass through encoder network
+        
+        Inputs:
+        
+        X (Tensor, torch.int32): (batch_size, num_steps) tokenized src sentences 
+        *args: not used
+
+        Outputs:
+
+        outputs (Tensor): (batch_size, num_steps, hidden_size)
+        hidden_state (Tensor): (num_layers, batch_size, hidden_size)
+
+        """
+        x = self.embed(x)
+        outputs, hidden_state = self.rnn(x)
+        return outputs, hidden_state
+
+class Seq2SeqDecoder(Decoder):
+    def __init__(self, vocab_size, embed_size, hidden_size, 
+                 num_layers, dropout=0.0):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.rnn = nn.GRU(embed_size + hidden_size, hidden_size, 
+                          num_layers, batch_first=True, dropout=dropout)
+        self.linear_out= nn.Linear(hidden_size, vocab_size) 
+        self.apply(init_seq2seq)
+
+    def init_state(self, enc_all_outputs, *args):
+        """Returns context vector, which is final hidden state
+        
+        Inputs:
+        (outputs, hidden_state) (tuple[Tensor]): hidden states at last layer, final hidden state
+
+        Outputs:
+        context (torch.Tensor): (batch_size, hidden_dim) final hidden state
+        """
+        outputs, _ = enc_all_outputs
+        return outputs[:, -1, :]
+
+    def forward(self, x, init_state):
+        """Forward pass through decoder network
+        
+        Uses final hidden state of encoder network as context vector.
+        Appends context vector to tgt token at each timestep.
+
+        Inputs:
+        
+        X (Tensor, torch.int32): (batch_size, num_steps)
+        init_state (torch.Tensor): (batch_size, hidden_size) context vector
+        
+        Outputs:
+        
+        outputs (Tensor): (batch_size, num_steps, vocab_size)
+        hidden_state (Tensor): (num_layers, batch_size, hidden_size) """
+         # (batchsize, num_steps, embed_dim)
+        embed = self.embedding(x)
+        # (batch_size, num_steps, hidden_dim
+        context = init_state.unsqueeze(1).repeat(1, embed.shape[1], 1) 
+         # (batch_size, num_steps, hidden_dim + embed_dim)
+        embed_and_context = torch.cat((context, embed), dim=2)
+        dec_outputs, hidden_state = self.rnn(embed_and_context)
+        return self.linear_out(dec_outputs), hidden_state
+
+class EncoderDecoder(Module):
+    def __init__(self, encoder, decoder):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+    
+    def forward(self, enc_X, dec_X, *args):
+        enc_all_outputs = self.encoder(enc_X, *args)
+        dec_state = self.decoder.init_state(enc_all_outputs, *args)
+        return self.decoder(dec_X, dec_state)[0]
+
+    def predict_step(self, batch, num_steps, save_attention_weights=False):
+        """Unrolls model predictions by taking maximum-probability token
+
+        Sends batch through encoder to create context vector.
+        Input to decoder is <bos> token.
+        
+        Inputs: 
+        
+        batch (tuple): 
+            src (batch_size, num_steps): tokenized input src sentences
+            tgt (batch_size, num_steps): tgt sentences, only <bos> used
+            src_valid_len (batch_size): padded length of src sentences
+            tgt_labels (batch_size, num_steps): tokenized tgt labels, not used
+        num_steps (int): number of steps to unroll prediction
+        save_attention_weights (bool): used for transformers
+
+        Outputs:
+
+        batch_outputs (torch.Tensor): (batch_size, num_steps) tokenized  
+        """
+        src, tgt, src_valid_len, _ = batch
+        enc_all_outputs = self.encoder(src, src_valid_len)
+        context = self.decoder.init_state(enc_all_outputs, src_valid_len)
+        x_dec = tgt[:, 0].unsqueeze(1) # <bos> token
+        outputs = [x_dec]
+        attention_weights = []
+        for _ in range(num_steps):
+            output, hidden_state = self.decoder(outputs[-1], context)
+            outputs.append(output.argmax(2))
+            # Save attention weights (to be covered later)
+            if save_attention_weights:
+                attention_weights.append(self.decoder.attention_weights)
+        return torch.cat(outputs[1:], dim=1), attention_weights
+
+class Seq2Seq(EncoderDecoder):
+    def __init__(self, encoder, decoder, tgt_pad_idx):
+        super().__init__(encoder, decoder)
+        self.tgt_pad_idx = tgt_pad_idx

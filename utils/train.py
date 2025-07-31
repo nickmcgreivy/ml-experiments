@@ -1,10 +1,11 @@
 from typing import Callable, Tuple
+import math
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 
-from .data import get_dataloaders
+from .data import get_dataloaders, WrappedDataLoader
 from .models import load_model
 
 Tensor = torch.Tensor
@@ -12,7 +13,7 @@ Tensor = torch.Tensor
 def batch_stats(
         model: nn.Module, 
         batch: tuple[Tensor, Tensor], 
-        loss_fn: Callable = F.cross_entropy,
+        loss_fn: Callable,
 ) -> Tuple[Tensor, float]:
     """
     Compute the loss and accuracy for a batch of data.
@@ -27,44 +28,50 @@ def batch_stats(
         loss (Tensor): Computed loss for the batch.
         accuracy (float): Accuracy of the model on the batch.
     """
-    X, y = batch
-    logits = model(X)
+    y = batch[-1]
+    logits = model(*batch[:-1])
     loss = loss_fn(logits, y)
-    preds = torch.argmax(logits, dim=1)
+    preds = torch.argmax(logits, dim=-1)
     accuracy = (preds == y).float().mean().item()
     return loss, accuracy
     
-def step(opt, loss):
+def step(model, opt, loss, **kwargs):
     loss.backward()
+    if kwargs.get('max_grad_norm', None):
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 
+                                       max_norm=kwargs['max_grad_norm'])
     opt.step()
     opt.zero_grad()
 
-def plot_stats(l, acc, model, epoch, i, dl_len, train, id=None):
-    model.plot('loss', l, epoch, i, dl_len, train=train, id=id)
-    model.plot('accuracy', acc, epoch, i, dl_len, train=train, id=id)
+def plot_stats(l, acc, model, epoch, i, dl_len, train, **kwargs):
+    if kwargs.get('plot_exp', None):
+        l = math.exp(l)
+    model.plot('loss', l, epoch, i, dl_len, train=train, id=kwargs['id'])
+    model.plot('accuracy', acc, epoch, i, dl_len, train=train, id=kwargs['id'])
 
-def validate(model, dl, epoch, id=None):
+def validate(model, dl, loss_fn, epoch, **kwargs):
     model.eval()
     with torch.no_grad():
         for i, batch in enumerate(dl):
-            l, acc = batch_stats(model, batch)
-            plot_stats(l.item(), acc, model, epoch, i, len(dl), train=False, id=id)
+            l, acc = batch_stats(model, batch, loss_fn)
+            plot_stats(l.item(), acc, model, epoch, i, len(dl), 
+                       train=False, **kwargs)
 
-def train_epoch(model, dl, opt, epoch, id=None):
+def train_epoch(model, dl, opt, loss_fn, epoch, **kwargs):
     model.train()
     for i, batch in enumerate(dl):
-        #if (i % 200 == 0) and i > 0:
-        #    print(f"Batch {i}/{len(dl)}")
-        l, acc = batch_stats(model, batch)
-        step(opt, l)
-        plot_stats(l.item(), acc, model, epoch, i, len(dl), train=True, id=id)
+        l, acc = batch_stats(model, batch, loss_fn)
+        step(model, opt, l, **kwargs)
+        plot_stats(l.item(), acc, model, epoch, i, len(dl), 
+                   train=True, **kwargs)
 
 def train_model(model: nn.Module, 
                 train_dl: torch.utils.data.DataLoader, 
                 val_dl: torch.utils.data.DataLoader, 
                 optimizer: torch.optim.Optimizer, 
                 num_epochs: int,
-                id = None,
+                loss_fn: Callable = F.cross_entropy,
+                **kwargs,
 ):
     """
     Train the model on the training dataset and validate on the validation dataset.
@@ -85,9 +92,22 @@ def train_model(model: nn.Module,
     """
     for epoch in range(num_epochs):
         #(f"Epoch {epoch + 1}/{num_epochs}")
-        train_epoch(model, train_dl, optimizer, epoch, id=id)
-        validate(model, val_dl, epoch, id=id)
+        train_epoch(model, train_dl, optimizer, loss_fn, epoch, **kwargs)
+        validate(model, val_dl, loss_fn, epoch, **kwargs)
     return model
+
+def val_stats(model, hp, loss_fn=F.cross_entropy, device='cpu'):
+    preprocess = lambda X, y: (X.to(device), y.to(device))
+    _, val_dl = get_dataloaders(hp, preprocess)
+    total_loss, total_accurate = 0.0, 0.0
+    model.eval()
+    with torch.no_grad():
+        for batch in val_dl:
+            l, acc = batch_stats(model, batch, loss_fn)
+            total_loss += l.item()
+            total_accurate += acc
+    return total_loss / len(val_dl), total_accurate / len(val_dl)
+
 
 def fit(hp, device='cpu'):
     """
@@ -109,19 +129,30 @@ def fit(hp, device='cpu'):
     # Create the model (initialization applied automatically in model.__init__())
     model = load_model(hp).to(device)
     # Set up the optimizer
-    optimizer = hp.optimizer(model.parameters(), lr=hp.lr)
+    opt = hp.optimizer(model.parameters(), lr=hp.lr)
     # Train the model
-    return train_model(model, train_dl, val_dl, optimizer, hp.num_epochs, id=hp.id)
+    return train_model(model, train_dl, val_dl, opt, hp.num_epochs, id=hp.id)
 
-def val_stats(model, hp, device='cpu'):
+def fit_rnn(train_dl, 
+            val_dl, 
+            model, 
+            opt, 
+            loss_fn, 
+            num_epochs,
+            device='cpu',
+            id=None,
+            max_grad_norm=1.0,
+            plot_exp=True,
+        ):
     preprocess = lambda X, y: (X.to(device), y.to(device))
-    _, val_dl = get_dataloaders(hp, preprocess)
-    total_loss, total_accurate, num = 0.0, 0.0, 0
-    model.eval()
-    with torch.no_grad():
-        for batch in val_dl:
-            l, acc = batch_stats(model, batch)
-            num += len(batch[0])
-            total_loss += l.item() * len(batch[0])
-            total_accurate += acc * len(batch[0])
-    return total_loss / num, total_accurate / num
+    train_dl = WrappedDataLoader(train_dl, preprocess)
+    val_dl = WrappedDataLoader(val_dl, preprocess)
+    model.to(device)
+    return train_model(model, train_dl, val_dl, opt, num_epochs, 
+                loss_fn=loss_fn, id=id, max_grad_norm=max_grad_norm, 
+                plot_exp=plot_exp)
+
+
+
+def fit_mt():
+    pass
