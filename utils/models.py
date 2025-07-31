@@ -1,7 +1,6 @@
 from typing import List, Callable, Tuple
 from abc import ABC, abstractmethod
 
-
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -235,6 +234,51 @@ class Decoder(Module, ABC):
     def forward(self, x, state):
         pass
 
+class EncoderDecoder(Module):
+    def __init__(self, encoder, decoder):
+        super().__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+    
+    def forward(self, enc_X, dec_X, *args):
+        enc_all_outputs = self.encoder(enc_X, *args)
+        dec_state = self.decoder.init_state(enc_all_outputs, *args)
+        return self.decoder(dec_X, dec_state)[0]
+
+    def predict_step(self, batch, num_steps, save_attention_weights=False):
+        """Unrolls model predictions by taking maximum-probability token
+
+        Sends batch through encoder to create context vector.
+        Input to decoder is <bos> token.
+        
+        Inputs: 
+        
+        batch (tuple): 
+            src (batch_size, num_steps): tokenized input src sentences
+            tgt (batch_size, num_steps): tgt sentences, only <bos> used
+            src_valid_len (batch_size): padded length of src sentences
+            tgt_labels (batch_size, num_steps): tokenized tgt labels, not used
+        num_steps (int): number of steps to unroll prediction
+        save_attention_weights (bool): used for transformers
+
+        Outputs:
+
+        batch_outputs (torch.Tensor): (batch_size, num_steps) tokenized  
+        """
+        src, tgt, src_valid_len, _ = batch
+        enc_all_outputs = self.encoder(src, src_valid_len)
+        context = self.decoder.init_state(enc_all_outputs, src_valid_len)
+        x_dec = tgt[:, 0].unsqueeze(1) # <bos> token
+        outputs = [x_dec]
+        attention_weights = []
+        for _ in range(num_steps):
+            output, hidden_state = self.decoder(outputs[-1], context)
+            outputs.append(output.argmax(2))
+            # Save attention weights (to be covered later)
+            if save_attention_weights:
+                attention_weights.append(self.decoder.attention_weights)
+        return torch.cat(outputs[1:], dim=1), attention_weights
+
 def init_seq2seq(module):
     """Initialize weights for sequence-to-sequence learning."""
     if type(module) == nn.Linear:
@@ -315,51 +359,6 @@ class Seq2SeqDecoder(Decoder):
         embed_and_context = torch.cat((context, embed), dim=2)
         dec_outputs, hidden_state = self.rnn(embed_and_context)
         return self.linear_out(dec_outputs), hidden_state
-
-class EncoderDecoder(Module):
-    def __init__(self, encoder, decoder):
-        super().__init__()
-        self.encoder = encoder
-        self.decoder = decoder
-    
-    def forward(self, enc_X, dec_X, *args):
-        enc_all_outputs = self.encoder(enc_X, *args)
-        dec_state = self.decoder.init_state(enc_all_outputs, *args)
-        return self.decoder(dec_X, dec_state)[0]
-
-    def predict_step(self, batch, num_steps, save_attention_weights=False):
-        """Unrolls model predictions by taking maximum-probability token
-
-        Sends batch through encoder to create context vector.
-        Input to decoder is <bos> token.
-        
-        Inputs: 
-        
-        batch (tuple): 
-            src (batch_size, num_steps): tokenized input src sentences
-            tgt (batch_size, num_steps): tgt sentences, only <bos> used
-            src_valid_len (batch_size): padded length of src sentences
-            tgt_labels (batch_size, num_steps): tokenized tgt labels, not used
-        num_steps (int): number of steps to unroll prediction
-        save_attention_weights (bool): used for transformers
-
-        Outputs:
-
-        batch_outputs (torch.Tensor): (batch_size, num_steps) tokenized  
-        """
-        src, tgt, src_valid_len, _ = batch
-        enc_all_outputs = self.encoder(src, src_valid_len)
-        context = self.decoder.init_state(enc_all_outputs, src_valid_len)
-        x_dec = tgt[:, 0].unsqueeze(1) # <bos> token
-        outputs = [x_dec]
-        attention_weights = []
-        for _ in range(num_steps):
-            output, hidden_state = self.decoder(outputs[-1], context)
-            outputs.append(output.argmax(2))
-            # Save attention weights (to be covered later)
-            if save_attention_weights:
-                attention_weights.append(self.decoder.attention_weights)
-        return torch.cat(outputs[1:], dim=1), attention_weights
 
 class Seq2Seq(EncoderDecoder):
     def __init__(self, encoder, decoder, tgt_pad_idx):

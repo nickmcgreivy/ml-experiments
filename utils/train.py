@@ -144,7 +144,7 @@ def fit_rnn(train_dl,
             max_grad_norm=1.0,
             plot_exp=True,
         ):
-    preprocess = lambda X, y: (X.to(device), y.to(device))
+    preprocess = lambda *args: tuple(arg.to(device) for arg in args)
     train_dl = WrappedDataLoader(train_dl, preprocess)
     val_dl = WrappedDataLoader(val_dl, preprocess)
     model.to(device)
@@ -152,7 +152,16 @@ def fit_rnn(train_dl,
                 loss_fn=loss_fn, id=id, max_grad_norm=max_grad_norm, 
                 plot_exp=plot_exp)
 
-
-
-def fit_mt():
-    pass
+def fit_mt(train_dl, 
+            val_dl, 
+            model, 
+            opt, 
+            loss_fn, 
+            num_epochs,
+            device='cpu',
+            id=None,
+            max_grad_norm=1.0,
+        ):
+    return fit_rnn(train_dl, val_dl, model, opt, loss_fn, 
+                   num_epochs, device=device, id=id, 
+                   max_grad_norm=max_grad_norm, plot_exp=False)

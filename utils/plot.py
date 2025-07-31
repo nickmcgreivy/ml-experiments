@@ -56,11 +56,13 @@ class ProgressBoard(HyperParameters):
         display.clear_output(wait=True)
 
 class Plot:
-    def __init__(self, plot_train_per_epoch=4, plot_valid_per_epoch=1):
+    def __init__(self, plot_train_per_epoch=2, plot_valid_per_epoch=1):
         super().__init__()
         self.plot_train_per_epoch = plot_train_per_epoch
         self.plot_valid_per_epoch = plot_valid_per_epoch
+        plt.ioff() # Turn off interactive mode
         fig, axs = plt.subplots(1, 2, figsize=(7, 3))
+        plt.ion() # Turn off interactive mode
         self.loss_board = ProgressBoard(fig=fig, axes=axs[0], ylim=[0,None])
         self.accuracy_board = ProgressBoard(fig=fig, axes=axs[1], ylim=[0,1])
 
