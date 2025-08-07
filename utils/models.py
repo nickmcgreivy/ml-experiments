@@ -101,7 +101,7 @@ class CNN(Module):
                                         hp.channel_widths[i + 1], 
                                         kernel_size=3, padding=1))
         self.fc_hidden = nn.Linear(hp.channel_widths[-1] * (hp.image_width // 
-                                    (2 ** (len(hp.channel_widths) - 1))) ** 2, 
+                                    (2 ** min(len(hp.channel_widths), 2))) ** 2, 
                                     hp.hidden_width)
         self.fc_out = nn.Linear(hp.hidden_width, hp.num_classes)
         self.pool = nn.MaxPool2d(kernel_size=hp.pool_size)
@@ -127,14 +127,14 @@ class CNN(Module):
         if self.batch_norm:
             for i, (bn, conv) in enumerate(zip(self.batch_norms, self.convs)):
                 x = self.activation(bn(conv(x)))
-                if i > 0:
+                if i < 2:
                     x = self.pool(x)
             x = x.view(x.size(0), -1)
             x = self.activation(self.bn_hidden(self.fc_hidden(x)))
         else:
             for i, conv in enumerate(self.convs):
                 x = self.activation(conv(x))
-                if i > 0:
+                if i < 2:
                     x = self.pool(x)
             x = x.view(x.size(0), -1)
             x = self.activation(self.fc_hidden(x))

@@ -82,9 +82,8 @@ class CNNHyperParameters(TrainingHyperParameters):
         _, self.input_channels, self.num_classes = get_dataset_shape(dataset)      
         self.image_width = get_image_width(dataset)
         self.hidden_width = hidden_width
-        self.channel_widths = [channel_width * (2**i) for i in range(num_convs)]
+        self.channel_widths = [channel_width * (4**min(i, 1)) for i in range(num_convs)]
         self.pool_size = 2
-        self.batch_norm = False
         super().__init__(
             dataset = dataset,
             model_type = 'CNN',
