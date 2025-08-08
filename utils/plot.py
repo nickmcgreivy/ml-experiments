@@ -63,8 +63,10 @@ class Plot:
         plt.ioff() # Turn off interactive mode
         fig, axs = plt.subplots(1, 2, figsize=(7, 3))
         plt.ion() # Turn off interactive mode
-        self.loss_board = ProgressBoard(fig=fig, axes=axs[0], ylim=[0,None])
-        self.accuracy_board = ProgressBoard(fig=fig, axes=axs[1], ylim=[0,1])
+        self.loss_board = ProgressBoard(fig=fig, axes=axs[0], 
+                                        ylim=[0,None])
+        self.accuracy_board = ProgressBoard(fig=fig, axes=axs[1], 
+                                            ylim=[0,1])
 
     def plot(self, key, value, epoch, i, dl_len, train, id):
         """Plot a point in animation."""

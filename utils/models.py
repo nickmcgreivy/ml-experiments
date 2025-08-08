@@ -288,8 +288,7 @@ class Seq2SeqDecoder(Decoder):
         Outputs:
         context (torch.Tensor): (batch_size, hidden_dim) final hidden state
         """
-        outputs, _ = enc_all_outputs
-        return outputs[:, -1, :]
+        return enc_all_outputs
 
     def forward(self, x, init_state):
         """Forward pass through decoder network
@@ -306,14 +305,16 @@ class Seq2SeqDecoder(Decoder):
         
         outputs (Tensor): (batch_size, num_steps, vocab_size)
         hidden_state (Tensor): (num_layers, batch_size, hidden_size) """
+        enc_output, hidden_state = init_state
          # (batchsize, num_steps, embed_dim)
         embed = self.embedding(x)
         # (batch_size, num_steps, hidden_dim
-        context = init_state.unsqueeze(1).repeat(1, embed.shape[1], 1) 
+        context = enc_output[:, -1, :]
+        context = context.unsqueeze(1).repeat(1, embed.shape[1], 1) 
          # (batch_size, num_steps, hidden_dim + embed_dim)
         embed_and_context = torch.cat((context, embed), dim=2)
-        dec_outputs, hidden_state = self.rnn(embed_and_context)
-        return self.linear_out(dec_outputs), hidden_state
+        dec_outputs, hidden_state = self.rnn(embed_and_context, hidden_state)
+        return self.linear_out(dec_outputs), [enc_output, hidden_state]
 
 class EncoderDecoder(Module):
     def __init__(self, encoder, decoder):
@@ -346,14 +347,15 @@ class EncoderDecoder(Module):
 
         batch_outputs (torch.Tensor): (batch_size, num_steps) tokenized  
         """
+        self.eval()
         src, tgt, src_valid_len, _ = batch
         enc_all_outputs = self.encoder(src, src_valid_len)
-        init_state = self.decoder.init_state(enc_all_outputs, src_valid_len)
+        dec_state = self.decoder.init_state(enc_all_outputs, src_valid_len)
         x_dec = tgt[:, 0].unsqueeze(1) # <bos> token
         outputs = [x_dec]
         attention_weights = []
         for _ in range(num_steps):
-            output, hidden_state = self.decoder(outputs[-1], init_state)
+            output, dec_state = self.decoder(outputs[-1], dec_state)
             outputs.append(output.argmax(2))
             # Save attention weights (to be covered later)
             if save_attention_weights:
