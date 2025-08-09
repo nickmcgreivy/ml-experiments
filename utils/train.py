@@ -5,7 +5,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from .data import get_dataloaders, WrappedDataLoader
+from .data import get_dataloaders_hp, WrappedDataLoader
 from .models import load_model
 
 Tensor = torch.Tensor
@@ -98,7 +98,7 @@ def train_model(model: nn.Module,
 
 def val_stats(model, hp, loss_fn=F.cross_entropy, device='cpu'):
     preprocess = lambda X, y: (X.to(device), y.to(device))
-    _, val_dl = get_dataloaders(hp, preprocess)
+    _, val_dl = get_dataloaders_hp(hp, preprocess)
     total_loss, total_accurate = 0.0, 0.0
     model.eval()
     with torch.no_grad():
@@ -125,7 +125,7 @@ def fit(hp, device='cpu'):
     """
     preprocess = lambda X, y: (X.to(device), y.to(device))
     # Load the dataset
-    train_dl, val_dl = get_dataloaders(hp, preprocess)
+    train_dl, val_dl = get_dataloaders_hp(hp, preprocess)
     # Create the model (initialization applied automatically in model.__init__())
     model = load_model(hp).to(device)
     # Set up the optimizer

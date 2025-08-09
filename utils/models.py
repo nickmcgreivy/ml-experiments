@@ -6,6 +6,7 @@ from torch import nn
 import torch.nn.functional as F
 
 from .plot import Plot
+from .attention import AdditiveAttention
 
 Tensor = torch.Tensor
 
@@ -366,3 +367,83 @@ class Seq2Seq(EncoderDecoder):
     def __init__(self, encoder, decoder, tgt_pad_idx):
         super().__init__(encoder, decoder)
         self.tgt_pad_idx = tgt_pad_idx
+
+class AttentionDecoder(Decoder):
+    def __init__(self):
+        super().__init__()
+    
+    @property
+    def attention_weights(self):
+        raise NotImplementedError
+
+class Seq2SeqAttentionDecoder(AttentionDecoder):
+    """Bahdanau attention decoder"""
+    def __init__(self, vocab_size, embed_size, num_hiddens, num_layers, dropout=0):
+        super().__init__()
+        self.attention = AdditiveAttention(num_hiddens, dropout)
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.rnn = nn.GRU(
+            embed_size + num_hiddens, num_hiddens, num_layers, 
+            batch_first=True, dropout=dropout)
+        self.dense = nn.LazyLinear(vocab_size)
+        self.apply(init_seq2seq)
+
+    def init_state(self, all_enc_outputs, enc_valid_lens):
+        """Returns context vector, which is final hidden state
+        
+        Inputs:
+        (outputs, hidden_state) (tuple[Tensor]): 
+            enc_outputs: (B, N, H) encoder outputs 
+            hidden_state: (L, B, H) final encoder hidden state
+        enc_valid_lens (Tensor): (B) number of non-padded tokens
+
+        Outputs:
+        (enc_outputs, hidden_state, valid_lens) (tuple[Tensor])
+        """
+        enc_outputs, hidden_state = all_enc_outputs
+        return enc_outputs, hidden_state, enc_valid_lens
+
+    def forward(self, X, init_state):
+        """Forward pass through decoder
+
+        B: batch size
+        N: num_steps, length of tgt sentences
+        H: num_hiddens
+        E: embed_size
+        L: num_layers
+        V: target vocab size
+
+        Args:
+            X (torch.Tensor): (B, N) tgt sentences, indices
+            init_state (tuple): enc_outputs, hidden_state, enc_valid_lens
+        
+        Returns:
+            torch.Tensor: (B, N, H) output of decoder
+            tuple: next state of encoder, only hidden_state changes
+        """
+        enc_outputs, hidden_state, enc_valid_lens = init_state
+        # (B, N, E) -> (N, B, E), allows iteration over X
+        X = self.embedding(X).permute(1, 0, 2)
+        outputs, self._attention_weights = [], []
+        for x in X:
+            # Gives s_{t'-1}, (B, 1, H)
+            query = hidden_state[-1].unsqueeze(dim=1)
+            # Bahdanau context c_t' = \sum \alpha(s_{t'-1}, h_t) h_t
+            context = self.attention(
+                query, enc_outputs, enc_outputs, valid_lens=enc_valid_lens)
+            # (B, 1, H + E)
+            x = torch.cat((context, x.unsqueeze(dim=1)), dim=-1)
+             # this only works if num_layers in encoder is same as decoder
+             # out is (B, 1, H), hidden_state is (L, B, H)
+            out, hidden_state = self.rnn(x, hidden_state)
+            outputs.append(out)
+            self._attention_weights.append(self.attention.attention_weights)
+        # (B, N, H)
+        outputs = torch.cat(outputs, dim=1)
+        # (B, N, V)
+        outputs = self.dense(outputs)
+        return outputs, [enc_outputs, hidden_state, enc_valid_lens]
+
+    @property
+    def attention_weights(self):
+        return self._attention_weights

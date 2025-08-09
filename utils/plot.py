@@ -7,6 +7,12 @@ from torch import nn as nn
 
 from .hparams import HyperParameters
 
+def use_svg_display():
+    """Use the svg format to display a plot in Jupyter.
+
+    Defined in :numref:`sec_calculus`"""
+    backend_inline.set_matplotlib_formats('svg')
+
 class ProgressBoard(HyperParameters):
     """The board that plots data points in animation."""
     def __init__(self, xlabel=None, ylabel=None, xlim=None,
@@ -34,7 +40,7 @@ class ProgressBoard(HyperParameters):
         points.clear()
         if not self.display:
             return
-        backend_inline.set_matplotlib_formats('svg')
+        use_svg_display()
         if self.fig is None:
             self.fig = plt.figure(figsize=self.figsize)
         axes = self.axes if self.axes else plt.gca()
@@ -85,3 +91,22 @@ class Plot:
         board.xlabel = 'epoch'
         board.draw(x, value, ('train_' if train else 'val_') + key, 
                    every_n=int(n), id=id)
+
+def show_heatmaps(matrices, xlabel, ylabel, titles=None, figsize=(2.5, 2.5),
+                  cmap='Reds'):
+    """Show heatmaps of matrices."""
+    use_svg_display()
+    num_rows, num_cols, _, _ = matrices.shape
+    fig, axes = plt.subplots(num_rows, num_cols, figsize=figsize,
+                                 sharex=True, sharey=True, squeeze=False)
+    for i, (row_axes, row_matrices) in enumerate(zip(axes, matrices)):
+        for j, (ax, matrix) in enumerate(zip(row_axes, row_matrices)):
+            pcm = ax.imshow(matrix.detach().numpy(), cmap=cmap)
+            if i == num_rows - 1:
+                ax.set_xlabel(xlabel)
+            if j == 0:
+                ax.set_ylabel(ylabel)
+            if titles:
+                ax.set_title(titles[j])
+    fig.colorbar(pcm, ax=axes, shrink=0.6);
+    plt.show()

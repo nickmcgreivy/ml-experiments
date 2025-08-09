@@ -67,10 +67,12 @@ class WrappedDataLoader:
         for b in self.dl:
             yield self.func(*b)
 
-def get_dataloaders(hp, func=None):
-    batch_size, dataset_size = hp.batch_size, hp.dataset_size
-    train_dataset, val_dataset = get_tensordataset(hp.dataset)
-    if dataset_size < len(train_dataset):
+def get_dataloaders_hp(hp, func=None):
+    return get_dataloaders(hp.batch_size, hp.dataset, dataset_size=hp.dataset_size, func=func)
+
+def get_dataloaders(batch_size, dataset, dataset_size=None, func=None):
+    train_dataset, val_dataset = get_tensordataset(dataset)
+    if dataset_size and dataset_size < len(train_dataset):
         indices = list(torch.randperm(len(train_dataset))[:dataset_size])
         train_dataset = Subset(train_dataset, indices)
     train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
