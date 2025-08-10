@@ -1,12 +1,15 @@
-from typing import List, Callable, Tuple
 from abc import ABC, abstractmethod
+import math
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 
+from .attention import (AdditiveAttention, 
+                        PositionalEncoding, 
+                        TransformerEncoderBlock, 
+                        TransformerDecoderBlock)
 from .plot import Plot
-from .attention import AdditiveAttention
 
 Tensor = torch.Tensor
 
@@ -443,6 +446,76 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
         # (B, N, V)
         outputs = self.dense(outputs)
         return outputs, [enc_outputs, hidden_state, enc_valid_lens]
+
+    @property
+    def attention_weights(self):
+        return self._attention_weights
+    
+from utils.models import Encoder
+
+class TransformerEncoder(Encoder):
+    """Encoder for encoder-decoder transformer
+    
+    For details, see:
+    https://d2l.ai/chapter_attention-mechanisms-and-transformers/transformer.html 
+    
+    Positional encoding is added to the input embeddings, and then
+    num_blks TransformerEncoderBlocks are applied sequentially.
+    """
+    def __init__(self, vocab_size, num_hiddens, ffn_num_hiddens, 
+                 num_heads, num_blks, dropout, use_bias=False):
+        super().__init__()
+        self.num_hiddens = num_hiddens
+        self.embedding = nn.Embedding(vocab_size, num_hiddens)
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+        self.blks = nn.Sequential()
+        for i in range(num_blks):
+            self.blks.add_module("block"+str(i), TransformerEncoderBlock(
+                num_hiddens, ffn_num_hiddens, num_heads, dropout, use_bias))
+    
+    def forward(self, X, valid_lens):
+        X = self.embedding(X)
+        X = self.pos_encoding(X * math.sqrt(self.num_hiddens))
+        self.attention_weights = [None] * len(self.blks)
+        for i, blk in enumerate(self.blks):
+            X = blk(X, valid_lens)
+            self.attention_weights[i] = blk.attention.attention.attention_weights
+        return X
+
+class TransformerDecoder(Decoder):
+    """Decoder for encoder-decoder transformer
+    
+    For details, see:
+    https://d2l.ai/chapter_attention-mechanisms-and-transformers/transformer.html
+    
+    Positional encoding is added to the input embeddings, and then
+    num_blks TransformerDecoderBlocks are applied sequentially."""
+    def __init__(self, vocab_size, num_hiddens, ffn_num_hiddens, num_heads, 
+                 num_blks, dropout):
+        super().__init__()
+        self.num_hiddens = num_hiddens
+        self.num_blks = num_blks
+        self.embedding = nn.Embedding(vocab_size, num_hiddens)
+        self.pos_encoding = PositionalEncoding(num_hiddens, dropout)
+        self.blks = nn.Sequential()
+        for i in range(num_blks):
+            self.blks.add_module("block"+str(i), TransformerDecoderBlock(
+                num_hiddens, ffn_num_hiddens, num_heads, dropout, i
+            ))
+        self.dense = nn.LazyLinear(vocab_size)
+    
+    def init_state(self, enc_outputs, enc_valid_lens):
+        return enc_outputs, enc_valid_lens, [None] * self.num_blks
+
+    def forward(self, X, state):
+        X = self.embedding(X)
+        X = self.pos_encoding(X * math.sqrt(self.num_hiddens))
+        self._attention_weights = [[None] * len(self.blks) for _ in range(2)]
+        for i, blk in enumerate(self.blks):
+            X, state = blk(X, state)
+            self._attention_weights[0][i] = blk.attention1.attention.attention_weights
+            self._attention_weights[1][i] = blk.attention2.attention.attention_weights
+        return self.dense(X), state
 
     @property
     def attention_weights(self):

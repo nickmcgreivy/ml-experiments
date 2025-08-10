@@ -21,7 +21,8 @@ def masked_softmax(X, valid_lens):
         """Sets to value all but the first valid_len elements of a sequence
         
         Expects X to be 2D Tensor (B, M), valid_lens 1D tensor (B)"""
-        mask = torch.arange(X.shape[1], dtype=torch.float32)[None, :] < valid_len[:, None]
+        mask = torch.arange(X.shape[1], dtype=torch.float32, 
+                            device=X.device)[None, :] < valid_len[:, None]
         X[~mask] = value
         return X
 
@@ -230,14 +231,99 @@ class PositionWiseFFN(nn.Module):
         return self.dense2(self.relu(self.dense1(X)))
 
 class AddNorm(nn.Module):
-    """Compute residual block with post-norm"""
+    """Compute residual block with post-norm
+    
+    LayerNorm(X + Dropout(Y))"""
     def __init__(self, norm_shape, dropout):
         super().__init__()
         self.dropout = nn.Dropout(dropout)
         self.ln = nn.LayerNorm(norm_shape)
     
     def forward(self, X, Y):
+        """Forward pass of AddNorm"""
         return self.ln(X + self.dropout(Y))
+    
+class TransformerEncoderBlock(nn.Module):
+    """Encoder block for encoder-decoder transformer"""
+    def __init__(self, num_hiddens, ffn_num_hiddens, num_heads, dropout, use_bias=False):
+        super().__init__()
+        self.attention = MultiHeadAttention(num_hiddens, num_heads, dropout, use_bias)
+        self.addnorm1 = AddNorm(num_hiddens, dropout)
+        self.ffn = PositionWiseFFN(ffn_num_hiddens, num_hiddens)
+        self.addnorm2 = AddNorm(num_hiddens, dropout)
+
+    def forward(self, X, valid_lens):
+        """Forward pass of transformer encoder block
+
+        Y_n = LayerNorm(X_n + Dropout(MSHA(Mask(X_n))))
+        X_{n+1} = LayerNorm(Y_n + Dropout(FFN(Y_n)))
+        
+        Args:
+            X (torch.Tensor): (B, N, H) Input tensor
+            valid_lens (torch.Tensor): (B,) or (B, N) Tensor of type int
+                describing how many tokens to attend to in each sequence
+
+        Returns:
+            torch.Tensor: (B, N, H) Output tensor after attention and FFN 
+        
+        """
+        Y = self.addnorm1(X, self.attention(X, X, X, valid_lens))
+        return self.addnorm2(Y, self.ffn(Y))
+
+class TransformerDecoderBlock(nn.Module):
+    """Decoder block for encoder-decoder transformer
+    
+    For details, see:
+    https://d2l.ai/chapter_attention-mechanisms-and-transformers/transformer.html
+
+    In the first sublayer, a MHSA sublayer with a causal mask is 
+    applied to the target sequence. During training, the mask is 
+    a 2D tensor of shape (B, N) where the 1st token has length 1,
+    the 2nd token has length 2, etc. During prediction, the input X
+    is the concatenation of all previous predictions, and the 
+    goal is to predict the next token, and dec_valid_lens is None
+    (no mask).
+
+    In the second sublayer, the output of the encoder MHSA is used
+    as keys and values for mult-headed attention. The queries are 
+    given by the output of the first sublayer. 
+    
+    In the third sublayer, a position-wise feed-forward network
+    is applied to the output of the second sublayer.
+    
+    Between each sublayer a normed residual connection is applied:
+        LayerNorm(X + Dropout(sublayer(X)))"""
+    def __init__(self, num_hiddens, ffn_num_hiddens, num_heads, dropout, i):
+        super().__init__()
+        self.i = i
+        self.attention1 = MultiHeadAttention(num_hiddens, 
+                                             num_heads, dropout)
+        self.addnorm1 = AddNorm(num_hiddens, dropout)
+        self.attention2 = MultiHeadAttention(num_hiddens, 
+                                             num_heads, dropout)
+        self.addnorm2 = AddNorm(num_hiddens, dropout)
+        self.ffn = PositionWiseFFN(ffn_num_hiddens, num_hiddens)
+        self.addnorm3 = AddNorm(num_hiddens, dropout)
+    
+    def forward(self, X, state):
+        enc_outputs, enc_valid_lens, pred_state = state
+        if pred_state[self.i] is None: # training or first prediction
+            key_values = X
+        else: # prediction mode, not first prediction
+            key_values = torch.cat((pred_state[self.i], X), dim=1)
+        pred_state[self.i] = key_values
+        if self.training:
+            batch_size, num_steps, _ = X.shape
+            dec_valid_lens = torch.arange(
+                1, num_steps+1, device=X.device).repeat(batch_size, 1)
+        else:
+            dec_valid_lens = None # use all predictions seen so far
+        X2 = self.attention1(X, key_values, key_values, dec_valid_lens)
+        Y = self.addnorm1(X, X2)
+        Y2 = self.attention2(Y, enc_outputs, enc_outputs, enc_valid_lens)
+        Z = self.addnorm2(Y, Y2)
+        Z2 = self.ffn(Z)
+        return self.addnorm3(Z, Z2), state
     
 class PatchEmbedding(nn.Module):
     """Patch embedding module for vision transformers

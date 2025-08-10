@@ -66,16 +66,19 @@ class Plot:
         super().__init__()
         self.plot_train_per_epoch = plot_train_per_epoch
         self.plot_valid_per_epoch = plot_valid_per_epoch
-        plt.ioff() # Turn off interactive mode
-        fig, axs = plt.subplots(1, 2, figsize=(7, 3))
-        plt.ion() # Turn off interactive mode
-        self.loss_board = ProgressBoard(fig=fig, axes=axs[0], 
-                                        ylim=[0,None])
-        self.accuracy_board = ProgressBoard(fig=fig, axes=axs[1], 
-                                            ylim=[0,1])
+        self.loss_board = None
+        self.accuracy_board = None
 
     def plot(self, key, value, epoch, i, dl_len, train, id):
         """Plot a point in animation."""
+        if self.loss_board is None:
+            plt.ioff() # Turn off interactive mode
+            fig, axs = plt.subplots(1, 2, figsize=(7, 3))
+            plt.ion() # Turn back on interactive mode
+            self.loss_board = ProgressBoard(fig=fig, axes=axs[0], 
+                                        ylim=[0,None])
+            self.accuracy_board = ProgressBoard(fig=fig, axes=axs[1], 
+                                            ylim=[0,1])
         if train:
             x = epoch + i / dl_len
             n = dl_len / self.plot_train_per_epoch

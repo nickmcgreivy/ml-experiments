@@ -46,8 +46,8 @@ def step(model, opt, loss, **kwargs):
 def plot_stats(l, acc, model, epoch, i, dl_len, train, **kwargs):
     if kwargs.get('plot_exp', None):
         l = math.exp(l)
-    model.plot('loss', l, epoch, i, dl_len, train=train, id=kwargs['id'])
-    model.plot('accuracy', acc, epoch, i, dl_len, train=train, id=kwargs['id'])
+    model.plot('loss', l, epoch, i, dl_len, train=train, id=kwargs.get('id', ""))
+    model.plot('accuracy', acc, epoch, i, dl_len, train=train, id=kwargs.get('id', ""))
 
 def validate(model, dl, loss_fn, epoch, **kwargs):
     model.eval()
@@ -96,9 +96,7 @@ def train_model(model: nn.Module,
         validate(model, val_dl, loss_fn, epoch, **kwargs)
     return model
 
-def val_stats(model, hp, loss_fn=F.cross_entropy, device='cpu'):
-    preprocess = lambda X, y: (X.to(device), y.to(device))
-    _, val_dl = get_dataloaders_hp(hp, preprocess)
+def val_stats(model, val_dl, loss_fn=F.cross_entropy, device='cpu'):
     total_loss, total_accurate = 0.0, 0.0
     model.eval()
     with torch.no_grad():
@@ -108,6 +106,10 @@ def val_stats(model, hp, loss_fn=F.cross_entropy, device='cpu'):
             total_accurate += acc
     return total_loss / len(val_dl), total_accurate / len(val_dl)
 
+def val_stats_hp(model, hp, loss_fn=F.cross_entropy, device='cpu'):
+    preprocess = lambda X, y: (X.to(device), y.to(device))
+    _, val_dl = get_dataloaders_hp(hp, preprocess)
+    return val_stats(model, val_dl, loss_fn=loss_fn, device=device)
 
 def fit(hp, device='cpu'):
     """
@@ -157,7 +159,7 @@ def loss_fn_mt(model, Y_hat, Y):
     Y_hat = Y_hat.reshape(-1, Y_hat.shape[-1])
     Y = Y.reshape(-1,)
     l = F.cross_entropy(Y_hat, Y, reduction='none')
-    mask = (Y != model.tgt_pad_idx).type(torch.float32)
+    mask = (Y != model.tgt_pad_idx).float()
     return (l * mask).sum() / mask.sum()
 
 def fit_mt(train_dl, 
