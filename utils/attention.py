@@ -79,9 +79,9 @@ class AdditiveAttention(nn.Module):
         \alpha @ V"""
     def __init__(self, num_hiddens, dropout):
         super().__init__()
-        self.W_q = nn.LazyLinear(num_hiddens, bias=False)
         self.W_k = nn.LazyLinear(num_hiddens, bias=False)
-        self.W_v = nn.LazyLinear(1, bias=False)
+        self.W_q = nn.LazyLinear(num_hiddens, bias=False)
+        self.w_v = nn.LazyLinear(1, bias=False)
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, queries, keys, values, valid_lens=None):
@@ -107,7 +107,7 @@ class AdditiveAttention(nn.Module):
         features = queries.unsqueeze(2) + keys.unsqueeze(1)
         features = torch.tanh(features)
         # (B, N, M)
-        scores = self.W_v(features).squeeze(-1)
+        scores = self.w_v(features).squeeze(-1)
         self.attention_weights = masked_softmax(scores, valid_lens)
         return torch.bmm(self.dropout(self.attention_weights), values)
 

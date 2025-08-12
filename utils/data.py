@@ -76,7 +76,7 @@ def get_dataloaders(batch_size, dataset, dataset_size=None, func=None):
         indices = list(torch.randperm(len(train_dataset))[:dataset_size])
         train_dataset = Subset(train_dataset, indices)
     train_dl = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_dl = DataLoader(val_dataset, batch_size=2*batch_size)
+    val_dl = DataLoader(val_dataset, batch_size=batch_size)
     if func is not None:
         train_dl = WrappedDataLoader(train_dl, func)
         val_dl = WrappedDataLoader(val_dl, func)
@@ -181,8 +181,7 @@ def download_mtfraeng():
 
 def preprocess_mt(text):
     # replace non-breaking space, convert upper to lower
-    text = text.replace('\u202f', ' ').replace('\u2009',' ') \
-                                      .replace('\xa0', ' ').lower()
+    text = text.replace('\u202f', ' ').replace('\xa0', ' ').lower()
     # add space before punctuation
     def needs_space(char, prev_char):
         return char in '!.,?' and prev_char != ' '
@@ -195,12 +194,11 @@ def tokenize_mt(text, max_examples=None):
     for i, line in enumerate(text.split('\n')):
         if max_examples and i >= max_examples:
             break
-        # ignore empty lines
-        if not line:
-            continue
-        eng, fr = line.split('\t')
-        src.append([t for t in f'{eng} <eos>'.split(' ')])
-        tgt.append([t for t in f'{fr} <eos>'.split(' ')])
+        parts = line.split('\t')
+        if len(parts) == 2:
+            eng, fr = parts
+            src.append([t for t in f'{eng} <eos>'.split(' ') if t])
+            tgt.append([t for t in f'{fr} <eos>'.split(' ') if t])
     return src, tgt
 
 def build_arrays_mt(raw_text, src_vocab=None, tgt_vocab=None, num_steps=9, num_train=512, num_val=128):
@@ -235,8 +233,8 @@ def build_arrays_mt(raw_text, src_vocab=None, tgt_vocab=None, num_steps=9, num_t
             valid_len (torch.Tensor): (num_sentences): length of source sequence (w/out padding)
         """
         # trim sentences or append <pad>, len(sentence) == num_steps for all sentences
-        pad_or_trim = lambda seq, t: seq[:t] if len(seq) > t else seq + \
-                                             ['<pad>'] * (t - len(seq))
+        pad_or_trim = lambda seq, t: (seq[:t] if len(seq) > t else seq + \
+                                             ['<pad>'] * (t - len(seq)))
         sentences = [pad_or_trim(s, num_steps) for s in sentences]
         # prepend <bos> for all sentences if is_tgt=True
         if is_tgt:
@@ -268,7 +266,7 @@ def get_data_mt(batch_size=4, num_steps=10, num_train=512, num_val=128):
     arrays, src_vocab, tgt_vocab = build_arrays_mt(download_mtfraeng(), 
                     num_steps=num_steps, num_train=num_train, num_val=num_val)
     train_arrays = (array[:num_train] for array in arrays)
-    val_arrays = (array[num_train:num_train+num_val] for array in arrays)
+    val_arrays = (array[num_train:] for array in arrays)
     train_ds = TensorDataset(*train_arrays)
     val_ds = TensorDataset(*val_arrays)
     train_dl = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
