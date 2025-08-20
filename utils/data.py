@@ -41,7 +41,7 @@ class Dataset(ABC):
 
     def put_batch(self, batch):
         if self.device is not None:
-            return (arr.to(self.device) for arr in batch)
+            return tuple(arr.to(self.device) for arr in batch)
         else:
             return batch
 

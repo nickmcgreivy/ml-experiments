@@ -10,6 +10,7 @@ from .attention import (AdditiveAttention,
                         TransformerEncoderBlock, 
                         TransformerDecoderBlock)
 from .plot import Plot
+from .attention import PatchEmbedding, ViTBlock
 
 Tensor = torch.Tensor
 
@@ -41,6 +42,7 @@ def get_activation(activation: str):
     else:
         raise ValueError(f"Unsupported activation function: {activation}")
 
+
 class Module(Plot, nn.Module):
     def __init__(self):
         super().__init__()
@@ -48,6 +50,7 @@ class Module(Plot, nn.Module):
     @property
     def num_params(self):
         return sum(p.numel() for p in self.parameters())
+
 
 class LogisticRegression(Module):
     def __init__(self, hp):
@@ -66,6 +69,7 @@ class LogisticRegression(Module):
         """
         x = torch.flatten(x, start_dim=1)
         return self.linear(x)
+
 
 class MLP(Module):
     def __init__(self, hp):
@@ -92,7 +96,8 @@ class MLP(Module):
         for layer in self.fc_layers:
             x = self.activation(layer(x))
         return self.fc_out(x)
-    
+
+ 
 class CNN(Module):
     def __init__(self, hp):
         super().__init__()
@@ -143,7 +148,8 @@ class CNN(Module):
             x = x.view(x.size(0), -1)
             x = self.activation(self.fc_hidden(x))
         return self.fc_out(x)
-    
+
+ 
 def load_model(hp):
     if hp.model_type == 'LogisticRegression':
         model = LogisticRegression(hp)
@@ -154,6 +160,7 @@ def load_model(hp):
     else:
         raise ValueError(f"Unsupported model type: {hp.model_type}")
     return model
+
 
 class RecurrentLM(Module, ABC):
     def __init__(self, vocab_size, rnn, out):
@@ -200,12 +207,14 @@ class RecurrentLM(Module, ABC):
 
         return ''.join(outputs)
 
+
 class RNNLM(RecurrentLM):
     """RNN-based language model"""
     def __init__(self, vocab_size, hidden_dim):
         rnn = nn.RNN(vocab_size, hidden_dim, batch_first=True)
         linear_out = nn.Linear(hidden_dim, vocab_size)
         super().__init__(vocab_size, rnn, linear_out)
+
 
 class LSTMLM(RecurrentLM):
     def __init__(self, vocab_size, num_hidden, num_layers=1, 
@@ -218,6 +227,7 @@ class LSTMLM(RecurrentLM):
         linear_out = nn.Linear(hidden_size, vocab_size)        
         super().__init__(vocab_size, rnn, linear_out)
 
+
 class Encoder(Module, ABC):
     def __init__(self):
         super().__init__()
@@ -225,6 +235,7 @@ class Encoder(Module, ABC):
     @abstractmethod
     def forward(self, x, *args):
         pass
+
 
 class Decoder(Module, ABC):
     def __init__(self):
@@ -246,6 +257,7 @@ def init_seq2seq(module):
         for param in module._flat_weights_names:
             if "weight" in param:
                 nn.init.xavier_uniform_(module._parameters[param])
+
 
 class Seq2SeqEncoder(Encoder):
     def __init__(self, vocab_size, embed_size, hidden_size, num_layers, dropout=0.0):
@@ -272,6 +284,7 @@ class Seq2SeqEncoder(Encoder):
         x = self.embed(x)
         outputs, hidden_state = self.rnn(x)
         return outputs, hidden_state
+
 
 class Seq2SeqDecoder(Decoder):
     def __init__(self, vocab_size, embed_size, hidden_size, 
@@ -320,6 +333,7 @@ class Seq2SeqDecoder(Decoder):
         dec_outputs, hidden_state = self.rnn(embed_and_context, hidden_state)
         return self.linear_out(dec_outputs), [enc_output, hidden_state]
 
+
 class EncoderDecoder(Module):
     def __init__(self, encoder, decoder):
         super().__init__()
@@ -366,10 +380,12 @@ class EncoderDecoder(Module):
                 attention_weights.append(self.decoder.attention_weights)
         return torch.cat(outputs[1:], dim=1), attention_weights
 
+
 class Seq2Seq(EncoderDecoder):
     def __init__(self, encoder, decoder, tgt_pad_idx):
         super().__init__(encoder, decoder)
         self.tgt_pad_idx = tgt_pad_idx
+
 
 class AttentionDecoder(Decoder):
     def __init__(self):
@@ -378,6 +394,7 @@ class AttentionDecoder(Decoder):
     @property
     def attention_weights(self):
         raise NotImplementedError
+
 
 class Seq2SeqAttentionDecoder(AttentionDecoder):
     """Bahdanau attention decoder"""
@@ -450,8 +467,7 @@ class Seq2SeqAttentionDecoder(AttentionDecoder):
     @property
     def attention_weights(self):
         return self._attention_weights
-    
-from utils.models import Encoder
+
 
 class TransformerEncoder(Encoder):
     """Encoder for encoder-decoder transformer
@@ -481,6 +497,7 @@ class TransformerEncoder(Encoder):
             X = blk(X, valid_lens)
             self.attention_weights[i] = blk.attention.attention.attention_weights
         return X
+
 
 class TransformerDecoder(Decoder):
     """Decoder for encoder-decoder transformer
@@ -520,3 +537,35 @@ class TransformerDecoder(Decoder):
     @property
     def attention_weights(self):
         return self._attention_weights
+
+
+class ViT(Module):
+    """Vision transformer."""
+    def __init__(self, img_size, patch_size, num_hiddens, mlp_num_hiddens,
+                 num_heads, num_blks, emb_dropout, blk_dropout, 
+                 use_bias=False, num_classes=10):
+        super().__init__()
+        self.patch_embedding = PatchEmbedding(
+            img_size, patch_size, num_hiddens
+        )
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, num_hiddens))
+        num_steps = self.patch_embedding.num_patches + 1
+        self.pos_embedding = nn.Parameter(torch.randn(1, num_steps, num_hiddens))
+        self.dropout = nn.Dropout(emb_dropout)
+        self.blks = nn.Sequential()
+        for i in range(num_blks):
+            blk = ViTBlock(
+                num_hiddens, mlp_num_hiddens, num_heads, blk_dropout, use_bias
+            )
+            self.blks.add_module(f"block {i}", blk)
+        self.head = nn.Sequential(nn.LayerNorm(num_hiddens), 
+                                  nn.Linear(num_hiddens, num_classes))
+    
+    def forward(self, X):
+        X = self.patch_embedding(X)
+        cls_tokens = self.cls_token.expand(X.shape[0], -1, -1)
+        X = torch.cat((cls_tokens, X), dim=1)
+        X = self.dropout(X + self.pos_embedding)
+        for blk in self.blks:
+            X = blk(X)
+        return self.head(X[:, 0])
