@@ -4,7 +4,7 @@ import hashlib
 import zipfile
 import tarfile
 import re
-from abc import ABC
+from abc import ABC, abstractmethod
 
 import torch
 from torch.utils.data import Subset, TensorDataset, DataLoader
@@ -29,9 +29,7 @@ def get_root():
 
 
 class Dataset(ABC):
-    def __init__(self):
-        pass
-
+    @abstractmethod
     def download(self):
         pass
 
@@ -41,11 +39,11 @@ class Dataset(ABC):
         return WrappedDataLoader(train_dl, self.put_batch), \
                WrappedDataLoader(val_dl, self.put_batch)
 
-    def put_batch(self, X, y):
+    def put_batch(self, batch):
         if self.device is not None:
-            return X.to(self.device), y.to(self.device)
+            return (arr.to(self.device) for arr in batch)
         else:
-            return X, y
+            return batch
 
 
 class WrappedDataLoader:
@@ -60,7 +58,7 @@ class WrappedDataLoader:
     def __iter__(self):
         for b in self.dl:
             if self.func is not None:
-                yield self.func(*b)
+                yield self.func(b)
             else:
                 yield b
 
@@ -124,12 +122,11 @@ class CIFAR10(CVDataset):
 
 
 class NLPDataset(Dataset):
-    def __init__(self):
-        pass
-
+    @abstractmethod
     def preprocess(self):
         pass
 
+    @abstractmethod
     def tokenize(self):
         pass
 
@@ -218,13 +215,14 @@ class TimeMachineDataset(NLPDataset):
 
 class FraEngMTDataset(NLPDataset):
     def __init__(self, batch_size=4, src_vocab=None, tgt_vocab=None, 
-                 num_steps=9, num_train=512, num_val=128):
+                 num_steps=9, num_train=512, num_val=128, device=None):
         self.batch_size = batch_size
         self.src_vocab = src_vocab
         self.tgt_vocab = tgt_vocab
         self.num_steps = num_steps
         self.num_train = num_train
         self.num_val = num_val
+        self.device = device
         self.train_ds, self.val_ds, self.src_vocab, self.tgt_vocab = \
                                                         self.download()
 
@@ -238,9 +236,8 @@ class FraEngMTDataset(NLPDataset):
         train_ds = TensorDataset(*train_arrays)
         val_ds = TensorDataset(*val_arrays)
         return train_ds, val_ds, src_vocab, tgt_vocab
-
     
-    def extract_zip(filename, folder=None):
+    def extract_zip(self, filename, folder=None):
         """Extract a zip/tar file into folder.
 
         Defined in :numref:`sec_utils`"""

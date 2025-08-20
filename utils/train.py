@@ -154,14 +154,6 @@ def fit_rnn(train_dl,
                 loss_fn=loss_fn, id=id, max_grad_norm=max_grad_norm, 
                 plot_exp=plot_exp)
 
-def loss_fn_mt(model, Y_hat, Y):
-    """Compute masked loss, padded values set to zero"""
-    Y_hat = Y_hat.reshape(-1, Y_hat.shape[-1])
-    Y = Y.reshape(-1,)
-    l = F.cross_entropy(Y_hat, Y, reduction='none')
-    mask = (Y != model.tgt_pad_idx).float()
-    return (l * mask).sum() / mask.sum()
-
 def fit_mt(train_dl, 
             val_dl, 
             model, 
