@@ -7,6 +7,8 @@ import torch.nn.functional as F
 
 from .data import get_dataloaders_hp, WrappedDataLoader
 from .models import load_model
+from .timer import Timer
+from .plot import Animator
 
 Tensor = torch.Tensor
 
@@ -167,3 +169,89 @@ def fit_mt(train_dl,
     return fit_rnn(train_dl, val_dl, model, opt, loss_fn, 
                    num_epochs, device=device, id=id, 
                    max_grad_norm=max_grad_norm, plot_exp=False)
+
+
+####################################################################
+# Optimization methods practice train functions
+####################################################################
+
+class Accumulator:
+    """For accumulating sums over `n` variables."""
+    def __init__(self, n):
+        """Defined in :numref:`sec_utils`"""
+        self.data = [0.0] * n
+
+    def add(self, *args):
+        self.data = [a + float(b) for a, b in zip(self.data, args)]
+
+    def reset(self):
+        self.data = [0.0] * len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+def evaluate_loss(net, data_iter, loss):
+    metric = Accumulator(2)  # Sum of losses, no. of examples
+    for X, y in data_iter:
+        out = net(X)
+        y = y.reshape(out.shape)
+        l = loss(out, y)
+        metric.add(l.sum(), l.numel())
+    return metric[0] / metric[1]
+
+def squared_loss(y_hat, y):
+    return (y_hat - y.reshape(y_hat.shape)) ** 2 / 2
+
+def train_optimization(trainer_fn, states, hyperparams, data_iter,
+                       feature_dim, num_epochs=2):
+    w = torch.normal(mean=0.0, std=0.01, size=(feature_dim, 1),
+                     requires_grad=True)
+    b = torch.zeros((1), requires_grad=True)
+    net, loss = lambda X: X @ w + b, squared_loss
+    animator = Animator(xlabel='epoch', ylabel='loss',
+                        xlim=[0, num_epochs], ylim=[0.22, 0.35])
+    n, timer = 0, Timer()
+    for _ in range(num_epochs):
+        for X, y in data_iter:
+            l = loss(net(X), y).mean()
+            l.backward()
+            trainer_fn([w, b], states, hyperparams)
+            n += X.shape[0]
+            if n % 200 == 0:
+                timer.stop()
+                animator.add(n/X.shape[0]/len(data_iter),
+                             (evaluate_loss(net, data_iter, loss),))
+                timer.start()
+    print(f'loss: {animator.Y[0][-1]:.3f}, {timer.sum()/num_epochs:.3f} sec/epoch')
+    return timer.cumsum(), animator.Y[0]      
+
+def train_optimization_concise(trainer_fn, hyperparams, data_iter, num_epochs=4):
+    # Initialization
+    net = nn.Sequential(nn.Linear(5, 1))
+    def init_weights(module):
+        if type(module) == nn.Linear:
+            torch.nn.init.normal_(module.weight, std=0.01)
+    net.apply(init_weights)
+
+    optimizer = trainer_fn(net.parameters(), **hyperparams)
+    loss = nn.MSELoss(reduction='none')
+    animator = Animator(xlabel='epoch', ylabel='loss',
+                            xlim=[0, num_epochs], ylim=[0.22, 0.35])
+    n, timer = 0, Timer()
+    for _ in range(num_epochs):
+        for X, y in data_iter:
+            optimizer.zero_grad()
+            out = net(X)
+            y = y.reshape(out.shape)
+            l = loss(out, y)
+            l.mean().backward()
+            optimizer.step()
+            n += X.shape[0]
+            if n % 200 == 0:
+                timer.stop()
+                curr_epoch = n/(X.shape[0]*len(data_iter))
+                # `MSELoss` computes squared error without the 1/2 factor
+                curr_loss = evaluate_loss(net, data_iter, loss) / 2
+                animator.add(curr_epoch, curr_loss)
+                timer.start()
+    print(f'loss: {animator.Y[0][-1]:.3f}, {timer.sum()/num_epochs:.3f} sec/epoch')

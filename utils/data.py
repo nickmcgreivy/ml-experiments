@@ -6,6 +6,7 @@ import tarfile
 import re
 from abc import ABC, abstractmethod
 
+import numpy as np
 import torch
 from torch.utils.data import Subset, TensorDataset, DataLoader
 from torchvision import transforms, datasets # type: ignore
@@ -348,17 +349,27 @@ class FraEngMTDataset(NLPDataset):
         train_dl, val_dl = self.get_dataloaders()
         return train_dl, val_dl, self.src_vocab, self.tgt_vocab
 
+########################################################################################
+# Optimization dataset
+########################################################################################
 
+def load_array(data_arrays, batch_size, is_train=True):
+    """Construct a PyTorch data iterator.
 
+    Defined in :numref:`sec_utils`"""
+    dataset = torch.utils.data.TensorDataset(*data_arrays)
+    return torch.utils.data.DataLoader(dataset, batch_size, shuffle=is_train)
 
-
-
-
-
-
-
-
-
+def get_nasa_data(batch_size=10, n=1500):
+    folder = get_root() + "misc/optimization_algorithms/data"
+    url = 'http://d2l-data.s3-accelerate.amazonaws.com/airfoil_self_noise.dat'
+    sha1_hash = '76e5be1548fd8222e5074cf0faae75edff8cf93f'
+    data = np.genfromtxt(download(url, folder, sha1_hash),
+                         dtype=np.float32, delimiter='\t')
+    data = torch.from_numpy((data - data.mean(axis=0)) / data.std(axis=0))
+    data_iter = load_array((data[:n, :-1], data[:n, -1]),
+                               batch_size, is_train=True)
+    return data_iter, data.shape[1]-1
 
 ########################################################################################
 # Older, messier computer vision dataset code
