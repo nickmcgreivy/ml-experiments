@@ -77,27 +77,25 @@ class CVDataset(Dataset):
         self.device = device
         self.train_ds, self.val_ds = self.download()
 
-    def extract(self, ds):
-        features = ds.data.numpy().transpose(1,2,0)
-        features = transforms.functional.to_tensor(features).unsqueeze(1)
-        features = transforms.functional.resize(features, self.resize)
-        return features, ds.targets
+    def transforms(self):
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize(self.resize)
+        ])
 
 
 class MNIST(CVDataset):
     def download(self):
-        train_ds = datasets.MNIST(root=self.datadir, train=True, download=True)
-        val_ds = datasets.MNIST(root=self.datadir, train=False, download=True)
-        return TensorDataset(*self.extract(train_ds)), \
-               TensorDataset(*self.extract(val_ds))
+        train_ds = datasets.MNIST(root=self.datadir, transform=self.transforms(), train=True, download=True)
+        val_ds = datasets.MNIST(root=self.datadir, transform=self.transforms(), train=False, download=True)
+        return train_ds, val_ds
 
 
 class FashionMNIST(MNIST):
     def download(self):
-        train_ds = datasets.FashionMNIST(root=self.datadir, train=True, download=True)
-        val_ds = datasets.FashionMNIST(root=self.datadir, train=False, download=True)
-        return TensorDataset(*self.extract(train_ds)), \
-               TensorDataset(*self.extract(val_ds))
+        train_ds = datasets.FashionMNIST(root=self.datadir, transform=self.transforms(), train=True, download=True)
+        val_ds = datasets.FashionMNIST(root=self.datadir, transform=self.transforms(), train=False, download=True)
+        return train_ds, val_ds
 
 
 class CIFAR10(CVDataset):
@@ -111,10 +109,15 @@ class CIFAR10(CVDataset):
         return features, targets
 
     def download(self):
-        train_ds = datasets.CIFAR10(root=self.datadir, train=True, download=True)
-        val_ds = datasets.CIFAR10(root=self.datadir, train=False, download=True)
-        return TensorDataset(*self.extract(train_ds)), \
-               TensorDataset(*self.extract(val_ds))
+        train_ds = datasets.CIFAR10(root=self.datadir, transform=self.transforms(), train=True, download=True)
+        val_ds = datasets.CIFAR10(root=self.datadir, transform=self.transforms(), train=False, download=True)
+        return train_ds, val_ds
+    
+    def transforms(self):
+        return transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize(self.resize)
+        ])
 
 
 ########################################################################################
