@@ -91,7 +91,7 @@ class MNIST(CVDataset):
         return train_ds, val_ds
 
 
-class FashionMNIST(MNIST):
+class FashionMNIST(CVDataset):
     def download(self):
         train_ds = datasets.FashionMNIST(root=self.datadir, transform=self.transforms(), train=True, download=True)
         val_ds = datasets.FashionMNIST(root=self.datadir, transform=self.transforms(), train=False, download=True)
