@@ -1,6 +1,8 @@
+import json
 import os
 from time import time
 
+import matplotlib.pyplot as plt
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -79,20 +81,26 @@ def train_step(
     opt.zero_grad()
     return loss
 
-
-def train_model(rank, world_size):
+def setup(rank, world_size):
     dist.init_process_group('nccl', world_size=world_size, rank=rank)
 
+def cleanup():
+    dist.destroy_process_group()
+
+def train_model(rank, world_size):
+    setup(rank, world_size)
+
     lr, batch_size = 0.1, 128
-
     train_dl, _ = load_fashion_mnist(batch_size=batch_size)
-
     model = resnet18().to(rank)
     model = DDP(model, device_ids=[rank])
     opt = torch.optim.SGD(model.parameters(), lr)
 
     num_epochs = 10
-    losses = []
+
+    if rank == 0:
+        loss_history = []
+        print(f"Process {rank} will be tracking loss.")
 
     t1 = time()
     for epoch in range(num_epochs):
@@ -100,10 +108,23 @@ def train_model(rank, world_size):
         for X, y in train_dl:
             X, y = X.to(rank), y.to(rank)
             loss = train_step(X, y, model, opt)
-            losses.append(loss.item())
+            
+            loss_for_reduce = loss.detach().clone()
+            dist.all_reduce(loss_for_reduce, dist.ReduceOp.SUM)
+            avg_loss = loss_for_reduce.item() / world_size
+
+            if rank == 0:
+                loss_history.append(avg_loss)
+
     t2 = time()
     print(f"{(t2-t1)/num_epochs:.1f} sec/epoch on device {rank}/{world_size}")
-    return losses
+
+    if rank == 0:
+        print("Saving loss history to file")
+        with open('multi-gpu-ddp-loss-history.json', 'w') as f:
+            json.dump(loss_history, f)
+
+    cleanup()
 
 def setup_multiprocessing():
     os.environ['MASTER_ADDR'] = 'localhost'
