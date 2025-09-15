@@ -133,8 +133,9 @@ def setup_multiprocessing():
 def main():
     setup_multiprocessing()
     world_size = torch.cuda.device_count()
+    print(f"running on {world_size} gpus")
     mp.spawn(train_model, 
-             args=(world_size), 
+             args=(world_size,), 
              nprocs=world_size, 
              join=True)
 
