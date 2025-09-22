@@ -109,7 +109,7 @@ def val_stats(model, val_dl, loss_fn=F.cross_entropy, device='cpu'):
     return total_loss / len(val_dl), total_accurate / len(val_dl)
 
 def val_stats_hp(model, hp, loss_fn=F.cross_entropy, device='cpu'):
-    preprocess = lambda X, y: (X.to(device), y.to(device))
+    preprocess = lambda *args: tuple(arg.to(device) for arg in args)
     _, val_dl = get_dataloaders_hp(hp, preprocess)
     return val_stats(model, val_dl, loss_fn=loss_fn, device=device)
 
@@ -127,7 +127,7 @@ def fit(hp, device='cpu'):
         val_losses: A list of validation losses at the end of each epoch.
         val_accuracies: A list of validation accuracies at the end of each epoch.
     """
-    preprocess = lambda X, y: (X.to(device), y.to(device))
+    preprocess = lambda *args: tuple(arg.to(device) for arg in args)
     # Load the dataset
     train_dl, val_dl = get_dataloaders_hp(hp, preprocess)
     # Create the model (initialization applied automatically in model.__init__())

@@ -59,7 +59,7 @@ class WrappedDataLoader:
     def __iter__(self):
         for b in self.dl:
             if self.func is not None:
-                yield self.func(b)
+                yield self.func(*b)
             else:
                 yield b
 
