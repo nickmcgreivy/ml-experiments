@@ -27,12 +27,28 @@ def bleu(pred_seq, label_seq, k):
         score *= math.pow(num_matches / (len_pred - n + 1), math.pow(0.5, n))
     return score
 
-def accuracy(logits, y):
+def accuracy(logits, y, reduction='mean'):
     """Assumes logits of shape (B, num_classes), y of shape (B,)"""
     predicted_label = torch.argmax(logits, dim=-1)
-    return (predicted_label == y).mean()
+    correct = (predicted_label == y).float()
+    if reduction == 'mean':
+        return correct.mean()
+    elif reduction == 'sum':
+        return correct.sum()
+    elif reduction == 'none':
+        return correct
+    else:
+        return ValueError(f"Expected reduction mean sum or none, got {reduction}")
 
-def topk_accuracy(logits, y, k=5):
+def topk_accuracy(logits, y, k=5, reduction='mean'):
     """Same assumptions as accuracy"""
     _, topk_labels = torch.topk(logits, k)
-    return (topk_labels == y[..., None]).sum(dim=1).mean()
+    correct = (topk_labels == y[..., None]).float().sum(dim=1)
+    if reduction == 'mean':
+        return correct.mean()
+    elif reduction == 'sum':
+        return correct.sum()
+    elif reduction == 'none':
+        return correct
+    else:
+        return ValueError(f"Expected reduction mean sum or none, got {reduction}")
