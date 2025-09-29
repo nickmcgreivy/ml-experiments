@@ -97,6 +97,13 @@ def get_val_transform():
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
+def get_plot_transform():
+    return transforms.Compose([
+        transforms.Resize(256),
+        transforms.CenterCrop(224),
+        transforms.ToTensor()
+    ])
+
 def load_imagenet(bucket, prefix, split='train', transform=None):
     if split == 'train':
         filename = 'imagenet-train.pkl'
