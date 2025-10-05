@@ -87,10 +87,6 @@ def train_model(model: nn.Module,
 
     Returns:
         model (nn.Module): The trained model.
-        train_losses: A list of training losses.
-        train_accuracies: A list of training accuracies at the end of each epoch.
-        val_losses: A list of validation losses at the end of each epoch.
-        val_accuracies: A list of validation accuracies at the end of each epoch.
     """
     for epoch in range(num_epochs):
         #(f"Epoch {epoch + 1}/{num_epochs}")
@@ -122,10 +118,6 @@ def fit(hp, device='cpu'):
     
     Returns:
         model (nn.Module): The trained model.
-        train_losses: A list of training losses.
-        train_accuracies: A list of training accuracies at the end of each epoch.
-        val_losses: A list of validation losses at the end of each epoch.
-        val_accuracies: A list of validation accuracies at the end of each epoch.
     """
     preprocess = lambda *args: tuple(arg.to(device) for arg in args)
     # Load the dataset
