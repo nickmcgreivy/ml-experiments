@@ -156,6 +156,13 @@
             margin: 0 auto;
         }
 
+        .file-info {
+            text-align: center;
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+
         .results {
             margin-top: 30px;
             display: none;
@@ -247,6 +254,21 @@
             display: block;
         }
 
+        .warning {
+            background: #fff3cd;
+            color: #856404;
+            padding: 12px 15px;
+            border-radius: 8px;
+            border-left: 4px solid #ffc107;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+            display: none;
+        }
+
+        .warning.active {
+            display: block;
+        }
+
         @media (max-width: 600px) {
             .container {
                 padding: 25px;
@@ -271,12 +293,13 @@
         <div class="upload-area" id="uploadArea">
             <div class="upload-icon">📁</div>
             <div class="upload-text">Click to upload or drag and drop</div>
-            <div class="upload-subtext">Supports JPG, PNG, and other image formats</div>
-            <input type="file" id="fileInput" accept="image/*">
+            <div class="upload-subtext">Supports JPG, PNG, HEIC, and other image formats</div>
+            <input type="file" id="fileInput" accept="image/*,.heic,.heif">
         </div>
 
         <div class="preview-container" id="previewContainer">
             <img id="imagePreview" class="image-preview" alt="Preview">
+            <div class="file-info" id="fileInfo"></div>
         </div>
 
         <div class="controls">
@@ -298,8 +321,9 @@
         </div>
     </div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js"></script>
     <script>
-        // Configuration - UPDATE THIS to your server's address
+        // Configuration - automatically uses the same origin as the page
         const API_BASE_URL = window.location.origin;
 
         const uploadArea = document.getElementById('uploadArea');
@@ -312,6 +336,7 @@
         const results = document.getElementById('results');
         const predictionsList = document.getElementById('predictionsList');
         const errorDiv = document.getElementById('error');
+        const fileInfo = document.getElementById('fileInfo');
 
         let selectedFile = null;
 
@@ -342,27 +367,84 @@
             }
         });
 
-        function handleFileSelect(e) {
+        async function handleFileSelect(e) {
             const file = e.target.files[0];
             if (!file) return;
 
-            if (!file.type.startsWith('image/')) {
+            // Reset UI
+            results.classList.remove('active');
+            errorDiv.classList.remove('active');
+
+            // Basic validation
+            if (!file.type.startsWith('image/') && !file.name.match(/\.(heic|heif)$/i)) {
                 showError('Please select a valid image file');
                 return;
             }
 
             selectedFile = file;
             
-            // Preview image
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                imagePreview.src = e.target.result;
-                previewContainer.classList.add('active');
+            // Show file info
+            const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            fileInfo.textContent = `${file.name} (${fileSizeMB} MB)`;
+
+            // Handle HEIC files
+            const isHEIC = file.type === 'image/heic' || file.type === 'image/heif' || 
+                          file.name.match(/\.(heic|heif)$/i);
+
+            if (isHEIC) {
+                await handleHEICPreview(file);
+            } else {
+                // Standard image preview
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                    previewContainer.classList.add('active');
+                    predictBtn.disabled = false;
+                };
+                reader.onerror = () => {
+                    showError('Failed to read image file');
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function handleHEICPreview(file) {
+            try {
+                // Check if heic2any library is available
+                if (typeof heic2any === 'undefined') {
+                    // Library not loaded, show placeholder
+                    showHEICPlaceholder(file.name);
+                    predictBtn.disabled = false;
+                    return;
+                }
+
+                // Convert HEIC to JPEG for preview
+                const convertedBlob = await heic2any({
+                    blob: file,
+                    toType: 'image/jpeg',
+                    quality: 0.8
+                });
+
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    imagePreview.src = e.target.result;
+                    previewContainer.classList.add('active');
+                    predictBtn.disabled = false;
+                };
+                reader.readAsDataURL(convertedBlob);
+
+            } catch (error) {
+                console.warn('HEIC preview conversion failed:', error);
+                showHEICPlaceholder(file.name);
                 predictBtn.disabled = false;
-                results.classList.remove('active');
-                errorDiv.classList.remove('active');
-            };
-            reader.readAsDataURL(file);
+            }
+        }
+
+        function showHEICPlaceholder(filename) {
+            // Show a placeholder for HEIC files that can't be previewed
+            imagePreview.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjQwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjQwMCIgZmlsbD0iI2Y4ZjlmZiIvPjx0ZXh0IHg9IjUwJSIgeT0iNDUlIiBmb250LWZhbWlseT0iQXJpYWwiIGZvbnQtc2l6ZT0iNjAiIGZpbGw9IiM2NjdlZWEiIHRleHQtYW5jaG9yPSJtaWRkbGUiPvCfk7c8L3RleHQ+PHRleHQgeD0iNTAlIiB5PSI2MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxOCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+SEVJQyBJbWFnZTwvdGV4dD48dGV4dCB4PSI1MCUiIHk9IjcwJSIgZm9udC1mYW1pbHk9IkFyaWFsIiBmb250LXNpemU9IjE0IiBmaWxsPSIjOTk5IiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5QcmV2aWV3IG5vdCBhdmFpbGFibGU8L3RleHQ+PC9zdmc+';
+            imagePreview.alt = `HEIC Image: ${filename}`;
+            previewContainer.classList.add('active');
         }
 
         // Predict button
@@ -390,16 +472,37 @@
                     body: formData
                 });
 
+                const data = await response.json();
+
                 if (!response.ok) {
-                    const errorData = await response.json();
-                    throw new Error(errorData.detail || 'Prediction failed');
+                    // Handle HTTP error responses
+                    throw new Error(data.detail || data.message || `Server error: ${response.status}`);
                 }
 
-                const data = await response.json();
+                // Validate response structure
+                if (!data.predicted || !Array.isArray(data.predicted)) {
+                    throw new Error('Invalid response format from server');
+                }
+
+                if (data.predicted.length === 0) {
+                    throw new Error('No predictions returned from server');
+                }
+
                 displayResults(data.predicted);
 
             } catch (error) {
-                showError(`Error: ${error.message}`);
+                console.error('Prediction error:', error);
+                
+                // Provide user-friendly error messages
+                let errorMessage = error.message;
+                
+                if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Unable to connect to server. Please check if the server is running.';
+                } else if (error.message.includes('NetworkError')) {
+                    errorMessage = 'Network error. Please check your internet connection.';
+                }
+                
+                showError(errorMessage);
             } finally {
                 loading.classList.remove('active');
                 predictBtn.disabled = false;
@@ -414,7 +517,7 @@
                 item.className = 'prediction-item';
                 item.innerHTML = `
                     <div class="rank">${index + 1}</div>
-                    <div class="prediction-label">${label}</div>
+                    <div class="prediction-label">${escapeHtml(label)}</div>
                 `;
                 predictionsList.appendChild(item);
             });
@@ -426,6 +529,25 @@
             errorDiv.textContent = message;
             errorDiv.classList.add('active');
         }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Check server connection on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch(`${API_BASE_URL}/`);
+                if (!response.ok) {
+                    console.warn('Server responded with error:', response.status);
+                }
+            } catch (error) {
+                console.warn('Could not connect to server:', error);
+                showError('Warning: Cannot connect to prediction server. Please ensure the server is running.');
+            }
+        });
     </script>
 </body>
 </html>

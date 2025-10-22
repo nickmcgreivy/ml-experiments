@@ -9,8 +9,11 @@ from PIL import Image
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+import pillow_heif
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+pillow_heif.register_heif_opener()
 
 app = FastAPI()
 app.add_middleware(
@@ -44,7 +47,7 @@ def load_model():
     model = models.resnet50()
     model.load_state_dict(trained_model_state_dict)
     model.eval()
-    return model
+    return model.to(device)
 
 transform = transforms.Compose([
         transforms.Resize(256),
@@ -68,6 +71,7 @@ async def predict(k: int, imgfile: UploadFile):
 
     try:
         image = Image.open(io.BytesIO(contents))
+        image = image.convert('RGB')
     except IOError:
         return {"message": "Couldn't open image file"}
 
